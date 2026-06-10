@@ -1,4 +1,5 @@
 import SwiftUI
+import UniformTypeIdentifiers
 
 struct ContentView: View {
     @Environment(Store.self) private var store
@@ -231,7 +232,17 @@ struct PRListView: View {
                             count: section.items.filter { $0.depth == 0 }.count
                         )
                         ForEach(section.items) { item in
-                            NestedRowView(item: item).id(item.id)
+                            NestedRowView(item: item)
+                                .id(item.id)
+                                .opacity(store.draggingID == item.id ? 0.45 : 1)
+                                .onDrag {
+                                    store.draggingID = item.id
+                                    return NSItemProvider(object: item.id as NSString)
+                                }
+                                .onDrop(
+                                    of: [.text],
+                                    delegate: RowDropDelegate(itemID: item.id, store: store)
+                                )
                         }
                     }
                 }
@@ -245,6 +256,31 @@ struct PRListView: View {
                 }
             }
         }
+    }
+}
+
+// Reorders live as the drag passes over sibling rows, so the row follows the
+// cursor; the drop itself just ends the gesture.
+private struct RowDropDelegate: DropDelegate {
+    let itemID: String
+    let store: Store
+
+    func dropEntered(info: DropInfo) {
+        MainActor.assumeIsolated {
+            guard let dragged = store.draggingID else { return }
+            withAnimation(.easeInOut(duration: 0.15)) {
+                store.reorder(dragged, over: itemID)
+            }
+        }
+    }
+
+    func dropUpdated(info: DropInfo) -> DropProposal? {
+        DropProposal(operation: .move)
+    }
+
+    func performDrop(info: DropInfo) -> Bool {
+        MainActor.assumeIsolated { store.draggingID = nil }
+        return true
     }
 }
 

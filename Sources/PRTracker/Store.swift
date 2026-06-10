@@ -97,10 +97,6 @@ final class Store {
 
     // MARK: - Grouped list
 
-    private func byAge(_ a: TrackedPR, _ b: TrackedPR) -> Bool {
-        a.createdAt < b.createdAt
-    }
-
     var sections: [GroupSection] {
         let inScope: [TrackedPR] = switch filter {
         case .repo(let r): prs.filter { $0.repo == r }
@@ -109,13 +105,20 @@ final class Store {
         let derived = Dictionary(uniqueKeysWithValues: inScope.map { ($0.id, derivedState($0)) })
         let inScopeIDs = Set(inScope.map(\.id))
 
+        // Position in `prs` is the display order; drag-reorder moves items
+        // there and save() persists it.
+        let order = Dictionary(uniqueKeysWithValues: prs.enumerated().map { ($0.element.id, $0.offset) })
+        func byOrder(_ a: TrackedPR, _ b: TrackedPR) -> Bool {
+            order[a.id, default: .max] < order[b.id, default: .max]
+        }
+
         func item(_ pr: TrackedPR, depth: Int) -> RowItem {
             let s = derived[pr.id]!
             return RowItem(pr: pr, depth: depth, state: s, reason: reason(pr, state: s))
         }
 
         if case .state(let s) = filter {
-            let items = inScope.filter { derived[$0.id] == s }.sorted(by: byAge)
+            let items = inScope.filter { derived[$0.id] == s }.sorted(by: byOrder)
                 .map { item($0, depth: 0) }
             return items.isEmpty ? [] : [GroupSection(state: s, items: items)]
         }
@@ -129,7 +132,7 @@ final class Store {
             func visit(_ id: String) {
                 let dependents = inScope
                     .filter { $0.dependsOn == id && derived[$0.id] == .blocked }
-                    .sorted(by: byAge)
+                    .sorted(by: byOrder)
                 for child in dependents where !seen.contains(child.id) {
                     seen.insert(child.id)
                     out.append(item(child, depth: 1))
@@ -151,7 +154,7 @@ final class Store {
                     return group == .blocked && !blockerVisible
                 }
                 return d == group
-            }.sorted(by: byAge)
+            }.sorted(by: byOrder)
             let items = roots.flatMap { [item($0, depth: 0)] + chain(under: $0.id) }
             if !items.isEmpty { out.append(GroupSection(state: group, items: items)) }
         }
@@ -219,6 +222,30 @@ final class Store {
         if case .state = filter { filter = .all }
         selection = id
         scrollTarget = id
+    }
+
+    // MARK: - Manual reordering
+
+    /// id of the row being dragged, while a reorder drag is in flight.
+    var draggingID: String?
+
+    /// Rows may swap only when they are siblings in the displayed list: same
+    /// section, same depth and (for nested rows) the same direct blocker.
+    private func areSiblings(_ a: RowItem, _ b: RowItem) -> Bool {
+        a.depth == b.depth && (a.depth == 0 || a.pr.dependsOn == b.pr.dependsOn)
+    }
+
+    func reorder(_ draggedID: String, over targetID: String) {
+        guard draggedID != targetID,
+              let section = sections.first(where: { $0.items.contains { $0.id == draggedID } }),
+              let dragged = section.items.first(where: { $0.id == draggedID }),
+              let target = section.items.first(where: { $0.id == targetID }),
+              areSiblings(dragged, target),
+              let from = prs.firstIndex(where: { $0.id == draggedID }),
+              let to = prs.firstIndex(where: { $0.id == targetID })
+        else { return }
+        prs.move(fromOffsets: IndexSet(integer: from), toOffset: to > from ? to + 1 : to)
+        save()
     }
 
     // MARK: - Row actions
