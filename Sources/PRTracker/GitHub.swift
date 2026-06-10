@@ -45,6 +45,16 @@ actor GitHubClient {
     static let shared = GitHubClient()
     private var cachedToken: String?
 
+    // CFNetwork heuristically caches the GraphQL POST responses (GitHub sends
+    // no Cache-Control header), serving stale check states even on manual
+    // refresh. Use a session with caching disabled entirely.
+    private let session: URLSession = {
+        let config = URLSessionConfiguration.ephemeral
+        config.urlCache = nil
+        config.requestCachePolicy = .reloadIgnoringLocalCacheData
+        return URLSession(configuration: config)
+    }()
+
     private func ghToken(forceRefresh: Bool = false) throws -> String {
         if !forceRefresh, let t = cachedToken { return t }
         let fm = FileManager.default
@@ -135,7 +145,7 @@ actor GitHubClient {
         ]
         req.httpBody = try JSONSerialization.data(withJSONObject: body)
 
-        let (data, resp) = try await URLSession.shared.data(for: req)
+        let (data, resp) = try await session.data(for: req)
         guard let http = resp as? HTTPURLResponse else { throw URLError(.badServerResponse) }
         guard http.statusCode == 200 else { throw GitHubError.http(http.statusCode) }
 
