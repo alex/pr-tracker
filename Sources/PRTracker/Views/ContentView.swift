@@ -227,22 +227,33 @@ struct PRListView: View {
             ScrollView {
                 LazyVStack(spacing: 0) {
                     ForEach(store.sections) { section in
+                        // Merged is collapsible (and starts collapsed) except
+                        // when it's the sidebar filter itself.
+                        let collapsible = section.state == .merged
+                            && store.filter != .state(.merged)
                         GroupHeaderView(
                             state: section.state,
-                            count: section.items.filter { $0.depth == 0 }.count
-                        )
-                        ForEach(section.items) { item in
-                            NestedRowView(item: item)
-                                .id(item.id)
-                                .opacity(store.draggingID == item.id ? 0.45 : 1)
-                                .onDrag {
-                                    store.draggingID = item.id
-                                    return NSItemProvider(object: item.id as NSString)
-                                }
-                                .onDrop(
-                                    of: [.text],
-                                    delegate: RowDropDelegate(itemID: item.id, store: store)
-                                )
+                            count: section.items.filter { $0.depth == 0 }.count,
+                            collapsed: collapsible ? store.mergedCollapsed : nil
+                        ) {
+                            withAnimation(.easeInOut(duration: 0.15)) {
+                                store.mergedCollapsed.toggle()
+                            }
+                        }
+                        if !(collapsible && store.mergedCollapsed) {
+                            ForEach(section.items) { item in
+                                NestedRowView(item: item)
+                                    .id(item.id)
+                                    .opacity(store.draggingID == item.id ? 0.45 : 1)
+                                    .onDrag {
+                                        store.draggingID = item.id
+                                        return NSItemProvider(object: item.id as NSString)
+                                    }
+                                    .onDrop(
+                                        of: [.text],
+                                        delegate: RowDropDelegate(itemID: item.id, store: store)
+                                    )
+                            }
                         }
                     }
                 }

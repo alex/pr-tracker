@@ -110,6 +110,9 @@ struct ChipView: View {
 struct GroupHeaderView: View {
     let state: WaitingState
     let count: Int
+    /// Non-nil makes the header a collapse toggle and shows a chevron.
+    var collapsed: Bool? = nil
+    var onToggle: () -> Void = {}
 
     var body: some View {
         HStack(spacing: 7) {
@@ -122,11 +125,19 @@ struct GroupHeaderView: View {
                 .font(.system(size: 11.5))
                 .monospacedDigit()
                 .foregroundStyle(.tertiary)
+            if let collapsed {
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 9, weight: .bold))
+                    .foregroundStyle(.tertiary)
+                    .rotationEffect(.degrees(collapsed ? 0 : 90))
+            }
             Rectangle().fill(.quaternary.opacity(0.5)).frame(height: 1).padding(.leading, 4)
         }
         .padding(.top, 14)
         .padding(.horizontal, 14)
         .padding(.bottom, 6)
+        .contentShape(Rectangle())
+        .onTapGesture { if collapsed != nil { onToggle() } }
     }
 }
 

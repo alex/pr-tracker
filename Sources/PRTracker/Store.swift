@@ -11,6 +11,7 @@ final class Store {
     var addFlow: AddFlow?
     var lastError: String?
     var scrollTarget: String?
+    var mergedCollapsed = true
 
     private var lastRefresh: Date?
     var isRefreshing = false
@@ -20,8 +21,14 @@ final class Store {
     private static let pollInterval: TimeInterval = 5 * 60
 
     private var saveURL: URL {
-        let dir = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-            .appendingPathComponent("PRTracker", isDirectory: true)
+        // Debug aid: PRTRACKER_DATA_DIR points the store at an alternate
+        // directory (Foundation ignores $HOME, so tests can't redirect it).
+        let dir = if let override = ProcessInfo.processInfo.environment["PRTRACKER_DATA_DIR"] {
+            URL(fileURLWithPath: override, isDirectory: true)
+        } else {
+            FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+                .appendingPathComponent("PRTracker", isDirectory: true)
+        }
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         return dir.appendingPathComponent("prs.json")
     }
@@ -220,6 +227,7 @@ final class Store {
         addFlow = nil
         if case .repo(let r) = filter, pr(id: id)?.repo != r { filter = .all }
         if case .state = filter { filter = .all }
+        if let p = pr(id: id), derivedState(p) == .merged { mergedCollapsed = false }
         selection = id
         scrollTarget = id
     }
@@ -325,11 +333,14 @@ final class Store {
         defer { isRefreshing = false }
         lastRefresh = .now
 
-        let refs = prs.compactMap { pr -> PRRef? in
-            let parts = pr.repo.split(separator: "/").map(String.init)
-            guard parts.count == 2 else { return nil }
-            return PRRef(owner: parts[0], name: parts[1], number: pr.number)
-        }
+        // Done PRs never change again; skipping them keeps refresh cost
+        // bounded by the number of open PRs.
+        let refs = prs.filter { !($0.merged || $0.closed || $0.manuallyMerged) }
+            .compactMap { pr -> PRRef? in
+                let parts = pr.repo.split(separator: "/").map(String.init)
+                guard parts.count == 2 else { return nil }
+                return PRRef(owner: parts[0], name: parts[1], number: pr.number)
+            }
 
         var firstError: String?
         await withTaskGroup(of: (String, Result<TrackedPR, Error>).self) { group in
