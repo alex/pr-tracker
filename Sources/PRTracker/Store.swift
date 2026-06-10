@@ -120,11 +120,24 @@ final class Store {
             return items.isEmpty ? [] : [GroupSection(state: s, items: items)]
         }
 
-        func children(of id: String, depth: Int) -> [RowItem] {
-            inScope
-                .filter { $0.dependsOn == id && derived[$0.id] == .blocked }
-                .sorted(by: byAge)
-                .flatMap { [item($0, depth: depth)] + children(of: $0.id, depth: depth + 1) }
+        // All transitive dependents of a root, flattened to one indent level
+        // (a chain A ← B ← C lists B then C under A, both at depth 1; each
+        // row's "after #N" chip still names its direct blocker).
+        func chain(under rootID: String) -> [RowItem] {
+            var out: [RowItem] = []
+            var seen: Set<String> = [rootID]
+            func visit(_ id: String) {
+                let dependents = inScope
+                    .filter { $0.dependsOn == id && derived[$0.id] == .blocked }
+                    .sorted(by: byAge)
+                for child in dependents where !seen.contains(child.id) {
+                    seen.insert(child.id)
+                    out.append(item(child, depth: 1))
+                    visit(child.id)
+                }
+            }
+            visit(rootID)
+            return out
         }
 
         var out: [GroupSection] = []
@@ -139,7 +152,7 @@ final class Store {
                 }
                 return d == group
             }.sorted(by: byAge)
-            let items = roots.flatMap { [item($0, depth: 0)] + children(of: $0.id, depth: 1) }
+            let items = roots.flatMap { [item($0, depth: 0)] + chain(under: $0.id) }
             if !items.isEmpty { out.append(GroupSection(state: group, items: items)) }
         }
         return out
