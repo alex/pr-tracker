@@ -120,8 +120,7 @@ final class Store {
         }
 
         func item(_ pr: TrackedPR, depth: Int) -> RowItem {
-            let s = derived[pr.id]!
-            return RowItem(pr: pr, depth: depth, state: s, reason: reason(pr, state: s))
+            RowItem(pr: pr, depth: depth)
         }
 
         if case .state(let s) = filter {

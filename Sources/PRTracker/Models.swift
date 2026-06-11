@@ -58,8 +58,6 @@ enum SidebarFilter: Hashable {
 struct RowItem: Identifiable {
     let pr: TrackedPR
     let depth: Int
-    let state: WaitingState
-    let reason: String
     var id: String { pr.id }
 }
 

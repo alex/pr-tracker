@@ -25,11 +25,17 @@ struct PRRowView: View {
     let item: RowItem
     @State private var hovering = false
 
-    private var pr: TrackedPR { item.pr }
+    // Everything displayed is derived from the store, not the captured item:
+    // the Lazy stack can reuse a row's view when a PR moves between sections,
+    // leaving a snapshot taken at insert time on screen. Reading through the
+    // store makes Observation re-render the row whenever a refresh updates
+    // `prs`, so row content can never go stale.
+    private var pr: TrackedPR { store.pr(id: item.id) ?? item.pr }
+    private var state: WaitingState { store.derivedState(pr) }
     private var selected: Bool { store.selection == pr.id }
 
     private var avatarName: String? {
-        switch item.state {
+        switch state {
         case .you: pr.author
         case .review, .merged: pr.changesRequestedBy ?? pr.reviewers.first
         case .ci, .blocked: nil
@@ -53,13 +59,14 @@ struct PRRowView: View {
                 HStack(spacing: 6) {
                     Text(pr.repo).foregroundStyle(.tertiary)
                     Text("·").foregroundStyle(.tertiary)
-                    Text(item.reason).foregroundStyle(.secondary)
+                    Text(store.reason(pr, state: state)).foregroundStyle(.secondary)
                 }
                 .font(.system(size: 11.5))
                 .lineLimit(1)
             }
             Spacer(minLength: 8)
-            if let depID = pr.dependsOn, let blocker = store.pr(id: depID) {
+            if let depID = pr.dependsOn, let blocker = store.pr(id: depID),
+               store.derivedState(blocker) != .merged {
                 ChipView(text: "after #\(blocker.number)", color: Palette.blocked)
             }
             if pr.commentCount > 0 {
@@ -88,7 +95,7 @@ struct PRRowView: View {
         )
         .padding(.horizontal, 8)
         .padding(.vertical, 1)
-        .opacity(item.state == .merged ? 0.55 : 1)
+        .opacity(state == .merged ? 0.55 : 1)
         .onHover { hovering = $0 }
         .onTapGesture(count: 2) { store.openOnGitHub(pr) }
         .onTapGesture { store.selection = pr.id }
